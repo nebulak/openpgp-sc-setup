@@ -1,0 +1,45 @@
+#!/bin/sh
+
+# quick hack for starting pcscd
+mkdir -p /var/run
+pcscd &
+
+sleep 3
+
+decrypt_gpg () {
+
+        # we check for attachted cardreader
+        # cardreaders with pinpad: they have to be attached before booting
+        # for cardreaders without pinpad: just attach them later, if the script already
+        # asks for Passphrase or PIN
+        if gpg -q --no-tty --homedir "$(dirname $1)" --card-status > /dev/null 2>&1 && sleep 2; then
+                echo "Please use the pinpad of your cardreader for PIN entry." >&2
+                if ! /usr/bin/gpg --homedir "$(dirname $1)" \
+                        --trustdb-name /dev/null --decrypt $1; then
+                        return 1
+                fi
+                return 0
+        else
+                echo "Performing GPG key decryption ..." >&2
+                if ! /lib/cryptsetup/askpass \
+                        "Enter passphrase for key $1, or PIN for your cardreader: " | \
+                        /usr/bin/gpg -q --batch --homedir "$(dirname $1)" \
+                        --trustdb-name /dev/null --passphrase-fd 0 --decrypt $1; then
+                        return 1
+                fi
+                return 0
+        fi
+}
+
+if [ ! -x /usr/bin/gpg ]; then
+        echo "$0: /usr/bin/gpg is not available" >&2
+        exit 1
+fi
+
+if [ -z "$1" ]; then
+        echo "$0: missing key as argument" >&2
+        exit 1
+fi
+
+decrypt_gpg "$1"
+exit $?
